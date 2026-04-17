@@ -5,7 +5,13 @@ import { useAuth } from '../contexts/AuthContext'
 import { useAudit } from '../hooks/useAudit'
 import { supabase, uploadFile, storagePath } from '../lib/supabase'
 import { paletteColor, PALETTE, getInitials } from '../lib/theme'
-import bcrypt from 'bcryptjs'
+async function sha256(text) {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(text)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+}
 import styles from './ConfigScreen.module.css'
 
 export default function ConfigScreen() {
@@ -166,7 +172,7 @@ export default function ConfigScreen() {
               userRole={user.role}
               userSetorId={user.setor_id}
               onSave={async (data) => {
-                const hash = await bcrypt.hash(data.pin, 10)
+                const hash = await sha256(data.pin)
                 if (sheet.type === 'add-colab') {
                   await supabase.from('colaboradores').insert({
                     nome: data.nome, initials: getInitials(data.nome),
