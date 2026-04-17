@@ -1,10 +1,17 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import bcrypt from 'bcryptjs/dist/bcrypt'
 import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext(null)
 const SESSION_KEY = 'giardino_session'
-const SESSION_DURATION = 24 * 60 * 60 * 1000 // 24 horas em ms
+const SESSION_DURATION = 24 * 60 * 60 * 1000
+
+async function sha256(text) {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(text)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
@@ -15,11 +22,8 @@ export function AuthProvider({ children }) {
     if (saved) {
       try {
         const { data, expiresAt } = JSON.parse(saved)
-        if (Date.now() < expiresAt) {
-          setUser(data)
-        } else {
-          localStorage.removeItem(SESSION_KEY)
-        }
+        if (Date.now() < expiresAt) setUser(data)
+        else localStorage.removeItem(SESSION_KEY)
       } catch {}
     }
     setLoading(false)
@@ -35,10 +39,9 @@ export function AuthProvider({ children }) {
 
     if (error || !data) throw new Error('Colaborador não encontrado')
 
-    const match = await bcrypt.compare(pin, data.pin_hash)
-    if (!match) throw new Error('PIN incorreto')
+    const pinHash = await sha256(pin)
+    if (pinHash !== data.pin_hash) throw new Error('PIN incorreto')
 
-    // Busca setores do gerente (múltiplos)
     let setores = []
     let setorPrincipal = null
     if (data.role === 'gerente') {
@@ -69,8 +72,7 @@ export function AuthProvider({ children }) {
       color_idx: data.color_idx,
     }
 
-    const expiresAt = Date.now() + SESSION_DURATION
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ data: sessionUser, expiresAt }))
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ data: sessionUser, expiresAt: Date.now() + SESSION_DURATION }))
     setUser(sessionUser)
     return sessionUser
   }
@@ -80,19 +82,13 @@ export function AuthProvider({ children }) {
     localStorage.removeItem(SESSION_KEY)
   }
 
-  const isGestor = user?.role === 'gestor'
-  const isGerente = user?.role === 'gerente'
-  const canConfig = isGestor || isGerente
-
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, isGestor, isGerente, canConfig }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, isGestor: user?.role === 'gestor', isGerente: user?.role === 'gerente', canConfig: user?.role === 'gestor' || user?.role === 'gerente' }}>
       {children}
     </AuthContext.Provider>
   )
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthContext)
-  if (!ctx) throw new Error('useAuth deve estar dentro de AuthProvider')
-  return ctx
+  return useContext(AuthContext)
 }
