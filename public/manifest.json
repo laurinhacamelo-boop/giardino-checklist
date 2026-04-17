@@ -1,0 +1,16 @@
+{
+  "short_name": "Giardino",
+  "name": "Giardino Checklists",
+  "description": "Gestão de checklists diários do restaurante Giardino",
+  "icons": [
+    { "src": "icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any maskable" },
+    { "src": "icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any maskable" }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#3B6D11",
+  "background_color": "#f5f5f0",
+  "lang": "pt-BR",
+  "categories": ["productivity", "business"]
+}

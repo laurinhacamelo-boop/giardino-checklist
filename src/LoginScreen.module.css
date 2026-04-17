@@ -1,0 +1,22 @@
+.wrap{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;background:#f5f5f0}
+.logo{font-size:26px;font-weight:500;color:#1a1a18;margin-bottom:4px}
+.logo span{color:#3B6D11}
+.sub{font-size:14px;color:#666;margin-bottom:32px}
+.list{display:flex;flex-direction:column;gap:8px;width:100%;max-width:320px;margin-bottom:24px}
+.chip{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;border:0.5px solid #ddd;background:white;cursor:pointer;transition:all 0.15s;width:100%}
+.chip:hover{border-color:#3B6D11}
+.chipAv{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:500;flex-shrink:0}
+.chipName{font-size:14px;font-weight:500;color:#1a1a18;text-align:left}
+.chipRole{font-size:12px;color:#666;text-align:left}
+.avatar{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:500;margin-bottom:8px}
+.userName{font-size:16px;font-weight:500;color:#1a1a18;margin-bottom:2px;text-align:center}
+.userRole{font-size:13px;color:#666;margin-bottom:24px;text-align:center}
+.dots{display:flex;gap:12px;justify-content:center;margin-bottom:28px}
+.dot{width:14px;height:14px;border-radius:50%;border:2px solid #ccc;background:transparent;transition:all 0.15s}
+.dotFilled{background:#3B6D11;border-color:#3B6D11}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:240px}
+.key{height:58px;border-radius:12px;border:0.5px solid #ddd;background:white;font-size:20px;font-weight:500;color:#1a1a18;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.1s}
+.key:active{background:#f5f5f0;transform:scale(0.96)}
+.del{font-size:14px;color:#666}
+.error{font-size:13px;color:#A32D2D;margin-top:14px;text-align:center;min-height:18px}
+.back{margin-top:14px;background:transparent;border:none;cursor:pointer;font-size:13px;color:#666}

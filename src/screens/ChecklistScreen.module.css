@@ -1,0 +1,84 @@
+.app{max-width:480px;margin:0 auto;background:#f5f5f0;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+.header{background:white;border-bottom:0.5px solid #e5e5e5;padding:14px 16px 0;position:sticky;top:0;z-index:50}
+.headerRow{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.logo{font-size:17px;font-weight:500;color:#1a1a18}
+.logo span{color:#3B6D11}
+.userPill{display:flex;align-items:center;gap:7px;padding:5px 10px;border-radius:20px;background:#f5f5f0;border:0.5px solid #ddd;cursor:pointer;font-size:12px;color:#666}
+.pillAv{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:500}
+.tabs{display:flex;gap:2px;margin:0 -16px;padding:0 16px;overflow-x:auto;scrollbar-width:none}
+.tab{padding:8px 16px;font-size:13px;cursor:pointer;white-space:nowrap;border:none;background:transparent;color:#666;border-bottom:2px solid transparent;transition:all 0.15s;flex-shrink:0}
+.tabActive{color:#3B6D11;border-bottom-color:#3B6D11;font-weight:500}
+.tabDot{display:inline-block;width:5px;height:5px;border-radius:50%;background:#E24B4A;margin-left:4px;vertical-align:middle}
+.body{padding:12px}
+.progressCard{background:white;border-radius:12px;border:0.5px solid #e5e5e5;padding:14px 16px;margin-bottom:16px}
+.progressRow{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.progressLabel{font-size:13px;color:#666}
+.progressNums{font-size:13px;font-weight:500;color:#1a1a18}
+.progressTrack{height:5px;background:#f0f0f0;border-radius:3px;overflow:hidden}
+.progressFill{height:100%;background:#3B6D11;border-radius:3px;transition:width 0.4s}
+.block{margin-bottom:20px}
+.blockHeader{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.blockTitle{font-size:11px;font-weight:500;color:#999;letter-spacing:0.6px;text-transform:uppercase}
+.blockDeadline{font-size:11px;color:#999}
+.late{color:#A32D2D}
+.alertCard{background:#FCEBEB;border:0.5px solid #F09595;border-radius:10px;padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px}
+.alertText{font-size:12px;color:#791F1F;line-height:1.4}
+.taskCard{background:white;border-radius:12px;border:0.5px solid #e5e5e5;margin-bottom:6px;overflow:hidden}
+.overdue{border-color:#F09595}
+.done{opacity:0.75}
+.taskMain{display:flex;align-items:center;gap:12px;padding:13px 14px}
+.checkBtn{width:26px;height:26px;border-radius:50%;border:2px solid #ccc;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;flex-shrink:0}
+.checked{background:#3B6D11;border-color:#3B6D11}
+.taskBody{flex:1;min-width:0}
+.taskName{font-size:14px;color:#1a1a18;line-height:1.3;margin-bottom:4px}
+.done .taskName{text-decoration:line-through;color:#999}
+.taskTags{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.timeTag{font-size:11px;color:#999;display:flex;align-items:center;gap:3px}
+.whoTag{font-size:12px;font-weight:500;color:#27500A;background:#EAF3DE;padding:3px 9px;border-radius:10px}
+.camBtn{width:34px;height:34px;border-radius:9px;border:0.5px solid #e5e5e5;background:#f5f5f0;display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative;flex-shrink:0;color:#666}
+.camBadge{position:absolute;top:-4px;right:-4px;background:#3B6D11;color:#EAF3DE;font-size:10px;font-weight:500;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.photosRow{border-top:0.5px solid #e5e5e5;display:flex;gap:8px;padding:10px 14px;overflow-x:auto;scrollbar-width:none}
+.photoThumb{width:64px;height:64px;border-radius:8px;object-fit:cover;border:0.5px solid #e5e5e5;flex-shrink:0}
+.photoAdd{width:64px;height:64px;border-radius:8px;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;color:#999}
+.blockNotes{background:white;border-radius:12px;border:0.5px solid #e5e5e5;overflow:hidden;margin-top:4px}
+.notesList{display:flex;flex-direction:column}
+.noteItem{padding:12px 14px;border-bottom:0.5px solid #e5e5e5}
+.noteHeader{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.noteAv{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;flex-shrink:0}
+.noteWho{font-size:12px;font-weight:500;color:#1a1a18}
+.noteTime{font-size:11px;color:#999;margin-left:auto}
+.noteText{font-size:13px;color:#1a1a18;line-height:1.5}
+.notePhoto{width:100%;max-height:160px;object-fit:cover;border-radius:8px;margin-top:8px}
+.noteAudio{width:100%;margin-top:8px}
+.addNoteBtn{display:flex;align-items:center;gap:8px;padding:12px 14px;cursor:pointer;color:#3B6D11;font-size:13px;font-weight:500;border-top:0.5px solid #e5e5e5}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:100;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:white;border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px 16px 40px;max-height:85vh;overflow-y:auto}
+.sheetHandle{width:36px;height:4px;background:#ddd;border-radius:2px;margin:0 auto 18px}
+.sheetTitle{font-size:16px;font-weight:500;color:#1a1a18;margin-bottom:2px}
+.sheetSub{font-size:13px;color:#666;margin-bottom:20px;line-height:1.4}
+.personGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
+.personBtn{display:flex;flex-direction:column;align-items:center;padding:14px 10px;border-radius:12px;border:0.5px solid #e5e5e5;background:#f5f5f0;cursor:pointer;transition:all 0.15s;text-align:center}
+.personBtn:hover{border-color:#3B6D11}
+.personAv{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:500;margin-bottom:7px}
+.personName{font-size:13px;font-weight:500;color:#1a1a18;line-height:1.2}
+.photoOpts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.photoOpt{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:20px 12px;border-radius:12px;border:0.5px solid #ddd;background:#f5f5f0;cursor:pointer;color:#3B6D11}
+.photoOptLabel{font-size:13px;font-weight:500;color:#1a1a18}
+.photoOptSub{font-size:11px;color:#666}
+.formGroup{margin-bottom:14px}
+.formLabel{font-size:12px;font-weight:500;color:#666;margin-bottom:6px}
+.textarea{width:100%;border:0.5px solid #ddd;border-radius:10px;padding:12px;font-size:14px;color:#1a1a18;background:#f5f5f0;resize:none;min-height:80px;font-family:inherit;outline:none;line-height:1.5}
+.textarea:focus{border-color:#3B6D11}
+.attachRow{display:flex;gap:8px;margin-bottom:14px}
+.attachBtn{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 10px;border-radius:10px;border:0.5px dashed #ccc;background:#f5f5f0;cursor:pointer;color:#666;font-size:13px}
+.attachActive{border-color:#3B6D11;color:#3B6D11;background:#EAF3DE;border-style:solid}
+.saveBtn{width:100%;padding:13px;background:#3B6D11;border:none;border-radius:12px;cursor:pointer;font-size:14px;color:#EAF3DE;font-weight:500;margin-bottom:8px}
+.saveBtn:disabled{background:#e5e5e5;color:#999;cursor:not-allowed}
+.cancelBtn{width:100%;padding:13px;background:transparent;border:0.5px solid #ddd;border-radius:12px;cursor:pointer;font-size:14px;color:#666}
+.audioRec{background:#f5f5f0;border-radius:12px;border:0.5px solid #e5e5e5;padding:20px;display:flex;flex-direction:column;align-items:center;gap:12px;margin-bottom:14px}
+.recStatus{font-size:13px;color:#666;text-align:center}
+.recActive{color:#A32D2D;font-weight:500}
+.recTimer{font-size:28px;font-weight:500;color:#1a1a18;font-variant-numeric:tabular-nums}
+.recWave{display:flex;align-items:center;gap:3px;height:36px}
+.recBar{width:4px;border-radius:2px;background:#3B6D11;transition:height 0.15s}
+.recBtn{width:60px;height:60px;border-radius:50%;border:none;cursor:pointer;background:#E24B4A;display:flex;align-items:center;justify-content:center}
