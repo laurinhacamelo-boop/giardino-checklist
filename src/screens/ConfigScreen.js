@@ -170,22 +170,37 @@ export default function ConfigScreen() {
               userSetorId={user.setor_id}
               onSave={async (data) => {
                 const hash = await sha256(data.pin)
+                const setor_principal = data.role === 'gerente'
+                  ? (data.setoresGerente?.[0] || null)
+                  : (data.setor_id || null)
+
                 if (sheet.type === 'add-colab') {
-                  await supabase.from('colaboradores').insert({
+                  const { data: novo } = await supabase.from('colaboradores').insert({
                     nome: data.nome, initials: getInitials(data.nome),
-                    role: data.role, setor_id: data.setor_id || null,
+                    role: data.role, setor_id: setor_principal,
                     pin_hash: hash, color_idx: data.color_idx,
-                  })
-                  await log('colab', 'adicionou o colaborador', data.nome, data.setor_id)
+                  }).select('id').single()
+                  if (data.role === 'gerente' && data.setoresGerente?.length && novo) {
+                    for (const sid of data.setoresGerente) {
+                      await supabase.from('gerente_setores').insert({ colaborador_id: novo.id, setor_id: sid })
+                    }
+                  }
+                  await log('colab', 'adicionou o colaborador', data.nome, setor_principal)
                 } else {
                   const update = {
                     nome: data.nome, initials: getInitials(data.nome),
-                    role: data.role, setor_id: data.setor_id || null,
+                    role: data.role, setor_id: setor_principal,
                     color_idx: data.color_idx,
                   }
                   if (data.pinChanged) update.pin_hash = hash
                   await supabase.from('colaboradores').update(update).eq('id', sheet.colab.id)
-                  await log('colab', 'editou o colaborador', data.nome, data.setor_id)
+                  if (data.role === 'gerente' && data.setoresGerente) {
+                    await supabase.from('gerente_setores').delete().eq('colaborador_id', sheet.colab.id)
+                    for (const sid of data.setoresGerente) {
+                      await supabase.from('gerente_setores').insert({ colaborador_id: sheet.colab.id, setor_id: sid })
+                    }
+                  }
+                  await log('colab', 'editou o colaborador', data.nome, setor_principal)
                 }
                 setSheet(null)
               }}
@@ -336,7 +351,6 @@ function ColabsScreen({ setores, filterSetor, isGestor, onBack, onAdd, onEdit, o
 
   useEffect(() => { loadColabs() }, [loadColabs])
 
-  // Recarrega após sheet fechar
   const handleEdit = async (c) => { onEdit(c); setTimeout(loadColabs, 800) }
   const handleDelete = async (c) => { onDelete(c); setTimeout(loadColabs, 800) }
   const handleAdd = () => { onAdd(); setTimeout(loadColabs, 800) }
@@ -779,12 +793,35 @@ function ColabSheet({ colab, setores, userRole, userSetorId, onSave, onClose }) 
   const [nome, setNome] = useState(colab?.nome || '')
   const [role, setRole] = useState(colab?.role || 'colaborador')
   const [setorId, setSetorId] = useState(colab?.setor_id || userSetorId || '')
+  const [setoresGerente, setSetoresGerente] = useState([])
   const [pin, setPin] = useState('')
   const [colorIdx] = useState(colab?.color_idx ?? Math.floor(Math.random() * PALETTE.length))
   const roles = userRole === 'gestor' ? ['gestor','gerente','colaborador'] : ['colaborador']
   const roleLabels = { gestor:'Gestor', gerente:'Gerente', colaborador:'Colaborador' }
   const setoresList = userRole === 'gestor' ? setores : setores.filter(s => s.id === userSetorId)
-  const canSave = nome.trim() && (colab ? true : pin.length === 4)
+
+  // Carrega setores do gerente ao editar
+  useEffect(() => {
+    if (colab && colab.role === 'gerente') {
+      supabase.from('gerente_setores')
+        .select('setor_id')
+        .eq('colaborador_id', colab.id)
+        .then(({ data }) => {
+          const ids = data?.map(g => g.setor_id) || []
+          if (ids.length === 0 && colab.setor_id) setSetoresGerente([colab.setor_id])
+          else setSetoresGerente(ids)
+        })
+    }
+  }, [colab])
+
+  function toggleSetorGerente(sid) {
+    setSetoresGerente(prev =>
+      prev.includes(sid) ? prev.filter(id => id !== sid) : [...prev, sid]
+    )
+  }
+
+  const canSave = nome.trim() && (colab ? true : pin.length === 4) &&
+    (role !== 'gerente' || setoresGerente.length > 0)
 
   return (
     <>
@@ -800,16 +837,58 @@ function ColabSheet({ colab, setores, userRole, userSetorId, onSave, onClose }) 
           ))}
         </div>
       </div>
-      <div className={styles.formGroup}><div className={styles.formLabel}>Setor</div>
-        <select className={styles.formSelect} value={setorId} onChange={e => setSetorId(e.target.value)}>
-          {setoresList.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-          {userRole === 'gestor' && <option value="">— Sem setor</option>}
-        </select>
-      </div>
+
+      {role === 'gerente' ? (
+        <div className={styles.formGroup}>
+          <div className={styles.formLabel}>Setores (pode escolher mais de um)</div>
+          <div style={{display:'flex',flexDirection:'column',gap:8,marginTop:4}}>
+            {setoresList.map(s => {
+              const sel = setoresGerente.includes(s.id)
+              const p = paletteColor(s.color_idx)
+              return (
+                <div key={s.id}
+                  onClick={() => toggleSetorGerente(s.id)}
+                  style={{
+                    display:'flex',alignItems:'center',gap:12,padding:'11px 14px',
+                    borderRadius:10,border:`1.5px solid ${sel ? p.dot : '#e5e5e5'}`,
+                    background: sel ? p.bg : 'white',cursor:'pointer',transition:'all 0.15s'
+                  }}>
+                  <div style={{
+                    width:20,height:20,borderRadius:6,border:`2px solid ${sel ? p.dot : '#ccc'}`,
+                    background: sel ? p.dot : 'transparent',
+                    display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0
+                  }}>
+                    {sel && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>}
+                  </div>
+                  <span style={{fontSize:14,fontWeight:500,color:'#1a1a18'}}>{s.label}</span>
+                </div>
+              )
+            })}
+          </div>
+          {setoresGerente.length === 0 && (
+            <div style={{fontSize:12,color:'#A32D2D',marginTop:6}}>Selecione pelo menos um setor</div>
+          )}
+        </div>
+      ) : (
+        <div className={styles.formGroup}><div className={styles.formLabel}>Setor</div>
+          <select className={styles.formSelect} value={setorId} onChange={e => setSetorId(e.target.value)}>
+            {setoresList.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+            {userRole === 'gestor' && <option value="">— Sem setor</option>}
+          </select>
+        </div>
+      )}
+
       <div className={styles.formGroup}><div className={styles.formLabel}>PIN {colab ? '(deixe vazio para não alterar)' : '(4 dígitos)'}</div>
         <PinInput value={pin} onChange={setPin} /></div>
       <button className={styles.saveBtn} disabled={!canSave}
-        onClick={() => onSave({ nome, role, setor_id: setorId || null, pin: pin || '0000', pinChanged: pin.length === 4, color_idx: colorIdx })}>
+        onClick={() => onSave({
+          nome, role,
+          setor_id: role === 'gerente' ? (setoresGerente[0] || null) : (setorId || null),
+          pin: pin || '0000',
+          pinChanged: pin.length === 4,
+          color_idx: colorIdx,
+          setoresGerente: role === 'gerente' ? setoresGerente : null,
+        })}>
         Salvar
       </button>
       <button className={styles.cancelBtn} onClick={onClose}>Cancelar</button>
