@@ -227,9 +227,10 @@ export default function ConfigScreen() {
 }
 
 function MenuItems({ user, isGestor, isGerente, setores, onStats, onMyStats, onSetores, onAudit, onColabs, onTarefas, onAlertas, onChecklist, onChangePin }) {
-  const setor = setores.find(s => s.id === user.setor_id)
+  const userSetores = user.setores?.length ? user.setores : setores.filter(s => s.id === user.setor_id)
+  const setor = userSetores[0]
   const p = setor ? paletteColor(setor.color_idx) : paletteColor(0)
-  const sl = setor?.label || ''
+  const sl = userSetores.map(s => s.label).join(' · ') || ''
 
   return (
     <>
@@ -290,7 +291,10 @@ function MenuItems({ user, isGestor, isGerente, setores, onStats, onMyStats, onS
             </div>
           ) : (
             <div className={styles.cfgCard}>
-              <CfgRow icon={<CheckSquareIcon stroke={p.dot} />} iconBg={p.bg} label="Tarefas e blocos" onClick={() => onTarefas(user.setor_id)} />
+              {userSetores.map(s => {
+                const sp = paletteColor(s.color_idx)
+                return <CfgRow key={s.id} icon={<CheckSquareIcon stroke={sp.dot} />} iconBg={sp.bg} label={s.label} sub="Blocos e tarefas" onClick={() => onTarefas(s.id)} />
+              })}
             </div>
           )}
           <div className={styles.secLbl}>Alertas{isGerente ? ` — ${sl}` : ''}</div>
