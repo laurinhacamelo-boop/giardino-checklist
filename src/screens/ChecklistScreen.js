@@ -93,11 +93,11 @@ export default function ChecklistScreen() {
   // Tarefa concluída = tem pelo menos um check total
   function isConcluida(tarefaId) {
     const lista = checks[tarefaId] || []
-    return lista.some(c => c.tipo === 'total' || c.tipo === null)
+    return lista.some(c => !c || c.tipo === 'total' || c.tipo === null || c.tipo === undefined)
   }
 
   function hasAnyCheck(tarefaId) {
-    return (checks[tarefaId] || []).length > 0
+    return (checks[tarefaId] || []).filter(Boolean).length > 0
   }
 
   function handleCheck(tarefa) {
@@ -254,12 +254,12 @@ export default function ChecklistScreen() {
                           <span className={`${styles.timeTag} ${overdue ? styles.late : ''}`}>
                             <ClockIcon /> {bloco.deadline}
                           </span>
-                          {lista.map(c => (
+                          {lista.filter(Boolean).map(c => (
                             <span key={c.id}
                               className={styles.whoTag}
-                              style={c.tipo === 'parcial' ? { background: '#FFF3CD', color: '#856404' } : {}}>
-                              {c.colaboradores?.nome.split(' ')[0]}
-                              {c.tipo === 'parcial' && ' ·'}
+                              style={c?.tipo === 'parcial' ? { background: '#FFF3CD', color: '#856404' } : {}}>
+                              {c.colaboradores?.nome?.split(' ')[0]}
+                              {c?.tipo === 'parcial' && ' ·'}
                             </span>
                           ))}
                         </div>
