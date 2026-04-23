@@ -85,3 +85,6 @@
 .headerActions{display:flex;align-items:center;gap:8px}
 .configBtn{width:34px;height:34px;border-radius:9px;border:0.5px solid #e5e5e5;background:#f5f5f0;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#666}
 .changePinBtn{font-size:12px;color:#666;background:transparent;border:none;cursor:pointer;text-decoration:underline;margin-top:4px}
+.partial{border-color:#D4A017;background:#FFFDF5}
+.checkedPartial{background:#FFF3CD;border-color:#D4A017;border-width:2px}
+.dangerBtn{width:100%;padding:13px;background:#FCEBEB;border:0.5px solid #F09595;border-radius:12px;cursor:pointer;font-size:14px;color:#A32D2D;font-weight:500}

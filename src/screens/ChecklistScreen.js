@@ -11,7 +11,7 @@ export default function ChecklistScreen() {
   const [setores, setSetores] = useState([])
   const [activeSetor, setActiveSetor] = useState(null)
   const [blocos, setBlocos] = useState([])
-  const [checks, setChecks] = useState({})
+  const [checks, setChecks] = useState({}) // tarefa_id -> array de checks
   const [anotacoes, setAnotacoes] = useState({})
   const [sheet, setSheet] = useState(null)
   const [expandedPhotos, setExpandedPhotos] = useState({})
@@ -19,7 +19,6 @@ export default function ChecklistScreen() {
   useEffect(() => {
     async function loadSetores() {
       let query = supabase.from('setores').select('*').eq('ativo', true).order('label')
-      
       if (user.role === 'colaborador') {
         query = query.eq('id', user.setor_id)
       } else if (user.role === 'gerente') {
@@ -27,7 +26,6 @@ export default function ChecklistScreen() {
         if (user.setor_id && !setorIds.includes(user.setor_id)) setorIds.push(user.setor_id)
         if (setorIds.length > 0) query = query.in('id', setorIds)
       }
-      
       const { data } = await query
       setSetores(data || [])
       if (data?.length) setActiveSetor(data[0].id)
@@ -43,7 +41,7 @@ export default function ChecklistScreen() {
       .eq('setor_id', setorId)
       .eq('alert_enabled', true)
       .order('ordem')
-    
+
     const blocosAtivos = (data || []).map(b => ({
       ...b,
       tarefas: b.tarefas.filter(t => t.ativa)
@@ -57,8 +55,13 @@ export default function ChecklistScreen() {
         .select('*, colaboradores(nome, initials, color_idx), check_fotos(id, storage_path)')
         .in('tarefa_id', tarefaIds)
         .eq('data', today())
+        .order('feito_em')
+      // Agrupa checks por tarefa_id como array
       const map = {}
-      checksData?.forEach(c => { map[c.tarefa_id] = c })
+      checksData?.forEach(c => {
+        if (!map[c.tarefa_id]) map[c.tarefa_id] = []
+        map[c.tarefa_id].push(c)
+      })
       setChecks(map)
     } else {
       setChecks({})
@@ -87,28 +90,53 @@ export default function ChecklistScreen() {
     if (activeSetor) loadBlocos(activeSetor)
   }, [activeSetor, loadBlocos])
 
-  async function handleCheck(tarefa) {
-    const existing = checks[tarefa.id]
-    if (existing) {
-      await supabase.from('checks').delete().eq('id', existing.id)
-      setChecks(prev => { const n = { ...prev }; delete n[tarefa.id]; return n })
+  // Tarefa concluída = tem pelo menos um check total
+  function isConcluida(tarefaId) {
+    const lista = checks[tarefaId] || []
+    return lista.some(c => c.tipo === 'total')
+  }
+
+  function hasAnyCheck(tarefaId) {
+    return (checks[tarefaId] || []).length > 0
+  }
+
+  function handleCheck(tarefa) {
+    // Se já tem check total, permite remover todos
+    if (isConcluida(tarefa.id)) {
+      setSheet({ type: 'remove-check', tarefa })
       return
     }
+    // Abre sheet para adicionar check
     setSheet({ type: 'who-check', tarefa })
   }
 
-  async function confirmCheck(tarefa, colaboradorId) {
+  async function confirmCheck(tarefa, colaboradorId, tipo) {
     const { data } = await supabase.from('checks').insert({
       tarefa_id: tarefa.id,
       colaborador_id: colaboradorId,
       data: today(),
+      tipo,
     }).select('*, colaboradores(nome, initials, color_idx)').single()
-    setChecks(prev => ({ ...prev, [tarefa.id]: data }))
+
+    setChecks(prev => ({
+      ...prev,
+      [tarefa.id]: [...(prev[tarefa.id] || []), data]
+    }))
+    setSheet(null)
+  }
+
+  async function removeAllChecks(tarefaId) {
+    const lista = checks[tarefaId] || []
+    for (const c of lista) {
+      await supabase.from('checks').delete().eq('id', c.id)
+    }
+    setChecks(prev => { const n = { ...prev }; delete n[tarefaId]; return n })
     setSheet(null)
   }
 
   async function handleTaskPhoto(tarefaId, file) {
-    const check = checks[tarefaId]
+    const lista = checks[tarefaId] || []
+    const check = lista[lista.length - 1]
     if (!check) return
     const path = storagePath('fotos/checks', file.name.split('.').pop())
     const url = await uploadFile('fotos', path, file)
@@ -135,7 +163,7 @@ export default function ChecklistScreen() {
   }
 
   const totalTasks = blocos.reduce((a, b) => a + b.tarefas.length, 0)
-  const doneTasks = blocos.reduce((a, b) => a + b.tarefas.filter(t => checks[t.id]).length, 0)
+  const doneTasks = blocos.reduce((a, b) => a + b.tarefas.filter(t => isConcluida(t.id)).length, 0)
   const pct = totalTasks > 0 ? Math.round(doneTasks / totalTasks * 100) : 0
 
   return (
@@ -162,7 +190,7 @@ export default function ChecklistScreen() {
                 className={`${styles.tab} ${activeSetor === s.id ? styles.tabActive : ''}`}
                 onClick={() => setActiveSetor(s.id)}>
                 {s.label}
-                {hasAlert(s.id, blocos, checks) && <span className={styles.tabDot} />}
+                {hasAlertSetor(s.id, blocos, checks, isConcluida) && <span className={styles.tabDot} />}
               </button>
             ))}
           </div>
@@ -182,7 +210,7 @@ export default function ChecklistScreen() {
 
         {blocos.map(bloco => {
           const late = isLate(bloco.deadline)
-          const pending = bloco.tarefas.filter(t => !checks[t.id]).length
+          const pending = bloco.tarefas.filter(t => !isConcluida(t.id)).length
           const blocoAnotacoes = anotacoes[bloco.id] || []
 
           return (
@@ -204,17 +232,21 @@ export default function ChecklistScreen() {
               )}
 
               {bloco.tarefas.sort((a, b) => a.ordem - b.ordem).map(tarefa => {
-                const check = checks[tarefa.id]
-                const overdue = late && !check
-                const fotos = check?.check_fotos || []
+                const concluida = isConcluida(tarefa.id)
+                const lista = checks[tarefa.id] || []
+                const temChecks = lista.length > 0
+                const overdue = late && !concluida
+                const fotos = lista.flatMap(c => c.check_fotos || [])
 
                 return (
                   <div key={tarefa.id}
-                    className={`${styles.taskCard} ${overdue ? styles.overdue : ''} ${check ? styles.done : ''}`}>
+                    className={`${styles.taskCard} ${overdue ? styles.overdue : ''} ${concluida ? styles.done : temChecks ? styles.partial : ''}`}>
                     <div className={styles.taskMain}>
-                      <div className={`${styles.checkBtn} ${check ? styles.checked : ''}`}
+                      <div
+                        className={`${styles.checkBtn} ${concluida ? styles.checked : temChecks ? styles.checkedPartial : ''}`}
                         onClick={() => handleCheck(tarefa)}>
-                        {check && <CheckIcon />}
+                        {concluida && <CheckIcon />}
+                        {!concluida && temChecks && <HalfIcon />}
                       </div>
                       <div className={styles.taskBody}>
                         <div className={styles.taskName}>{tarefa.label}</div>
@@ -222,18 +254,21 @@ export default function ChecklistScreen() {
                           <span className={`${styles.timeTag} ${overdue ? styles.late : ''}`}>
                             <ClockIcon /> {bloco.deadline}
                           </span>
-                          {check?.colaboradores && (
-                            <span className={styles.whoTag}>
-                              {check.colaboradores.nome.split(' ')[0]}
+                          {lista.map(c => (
+                            <span key={c.id}
+                              className={styles.whoTag}
+                              style={c.tipo === 'parcial' ? { background: '#FFF3CD', color: '#856404' } : {}}>
+                              {c.colaboradores?.nome.split(' ')[0]}
+                              {c.tipo === 'parcial' && ' ·'}
                             </span>
-                          )}
+                          ))}
                         </div>
                       </div>
                       <div className={styles.camBtn}
                         onClick={() => {
                           if (fotos.length) {
                             setExpandedPhotos(p => ({ ...p, [tarefa.id]: !p[tarefa.id] }))
-                          } else if (check) {
+                          } else if (temChecks) {
                             setSheet({ type: 'photo-task', tarefaId: tarefa.id })
                           }
                         }}>
@@ -278,11 +313,20 @@ export default function ChecklistScreen() {
       {sheet && (
         <SheetOverlay onClose={() => setSheet(null)}>
           {sheet.type === 'who-check' && (
-            <WhoSheet
+            <WhoCheckSheet
               tarefa={sheet.tarefa}
               setorId={activeSetor}
-              currentUser={user}
-              onSelect={colabId => confirmCheck(sheet.tarefa, colabId)}
+              checksExistentes={checks[sheet.tarefa.id] || []}
+              onSelect={(colabId, tipo) => confirmCheck(sheet.tarefa, colabId, tipo)}
+              onClose={() => setSheet(null)}
+            />
+          )}
+          {sheet.type === 'remove-check' && (
+            <RemoveCheckSheet
+              tarefa={sheet.tarefa}
+              checks={checks[sheet.tarefa.id] || []}
+              onAddMore={() => { setSheet({ type: 'who-check', tarefa: sheet.tarefa }) }}
+              onRemoveAll={() => removeAllChecks(sheet.tarefa.id)}
               onClose={() => setSheet(null)}
             />
           )}
@@ -308,9 +352,12 @@ export default function ChecklistScreen() {
   )
 }
 
-function WhoSheet({ tarefa, setorId, currentUser, onSelect, onClose }) {
+// Sheet para escolher quem faz o check e se é parcial ou total
+function WhoCheckSheet({ tarefa, setorId, checksExistentes, onSelect, onClose }) {
   const [colaboradores, setColaboradores] = useState([])
-  
+  const [selectedColab, setSelectedColab] = useState(null)
+  const [tipo, setTipo] = useState('total')
+
   useEffect(() => {
     supabase.from('colaboradores')
       .select('id, nome, initials, color_idx')
@@ -320,22 +367,118 @@ function WhoSheet({ tarefa, setorId, currentUser, onSelect, onClose }) {
       .then(({ data }) => setColaboradores(data || []))
   }, [setorId])
 
+  const jaFez = (colabId) => checksExistentes.some(c => c.colaborador_id === colabId)
+
   return (
     <>
-      <div className={styles.sheetTitle}>Quem está fazendo?</div>
+      <div className={styles.sheetTitle}>Registrar check</div>
       <div className={styles.sheetSub}>{tarefa.label}</div>
+
+      {checksExistentes.length > 0 && (
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:11,fontWeight:500,color:'#999',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:6}}>Já registrado</div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            {checksExistentes.map(c => (
+              <span key={c.id} style={{
+                fontSize:12,fontWeight:500,padding:'4px 10px',borderRadius:10,
+                background: c.tipo === 'total' ? '#EAF3DE' : '#FFF3CD',
+                color: c.tipo === 'total' ? '#27500A' : '#856404'
+              }}>
+                {c.colaboradores?.nome.split(' ')[0]} {c.tipo === 'parcial' ? '(parcial)' : '✓'}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{fontSize:11,fontWeight:500,color:'#999',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:8}}>Quem está fazendo?</div>
       <div className={styles.personGrid}>
         {colaboradores.map(c => {
           const p = paletteColor(c.color_idx)
+          const fez = jaFez(c.id)
           return (
-            <button key={c.id} className={styles.personBtn} onClick={() => onSelect(c.id)}>
+            <button key={c.id}
+              className={`${styles.personBtn} ${selectedColab?.id === c.id ? styles.personBtnSel : ''}`}
+              style={fez ? { opacity: 0.5 } : {}}
+              onClick={() => !fez && setSelectedColab(c)}>
               <div className={styles.personAv} style={{ background: p.bg, color: p.fg }}>{c.initials}</div>
-              <div className={styles.personName}>{c.nome}</div>
+              <div className={styles.personName}>{c.nome.split(' ')[0]}</div>
+              {fez && <div style={{fontSize:10,color:'#999'}}>já fez</div>}
             </button>
           )
         })}
       </div>
+
+      {selectedColab && (
+        <>
+          <div style={{fontSize:11,fontWeight:500,color:'#999',letterSpacing:'0.5px',textTransform:'uppercase',margin:'14px 0 8px'}}>Tipo de check</div>
+          <div style={{display:'flex',gap:8,marginBottom:16}}>
+            <button
+              onClick={() => setTipo('parcial')}
+              style={{
+                flex:1,padding:'12px 8px',borderRadius:10,border:`1.5px solid ${tipo==='parcial'?'#BA7517':'#e5e5e5'}`,
+                background:tipo==='parcial'?'#FFF3CD':'white',cursor:'pointer'
+              }}>
+              <div style={{fontSize:14,fontWeight:500,color: tipo==='parcial'?'#856404':'#1a1a18'}}>Parcial</div>
+              <div style={{fontSize:11,color:'#888',marginTop:2}}>Outro pode continuar</div>
+            </button>
+            <button
+              onClick={() => setTipo('total')}
+              style={{
+                flex:1,padding:'12px 8px',borderRadius:10,border:`1.5px solid ${tipo==='total'?'#3B6D11':'#e5e5e5'}`,
+                background:tipo==='total'?'#EAF3DE':'white',cursor:'pointer'
+              }}>
+              <div style={{fontSize:14,fontWeight:500,color: tipo==='total'?'#27500A':'#1a1a18'}}>Total</div>
+              <div style={{fontSize:11,color:'#888',marginTop:2}}>Tarefa concluída</div>
+            </button>
+          </div>
+          <button className={styles.saveBtn} onClick={() => onSelect(selectedColab.id, tipo)}>
+            Confirmar check
+          </button>
+        </>
+      )}
       <button className={styles.cancelBtn} onClick={onClose}>Cancelar</button>
+    </>
+  )
+}
+
+// Sheet para ver checks existentes e remover
+function RemoveCheckSheet({ tarefa, checks, onAddMore, onRemoveAll, onClose }) {
+  return (
+    <>
+      <div className={styles.sheetTitle}>{tarefa.label}</div>
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:11,fontWeight:500,color:'#999',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:8}}>Checks registrados</div>
+        {checks.map(c => {
+          const p = paletteColor(c.colaboradores?.color_idx || 0)
+          const time = new Date(c.feito_em).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })
+          return (
+            <div key={c.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 0',borderBottom:'0.5px solid #e5e5e5'}}>
+              <div style={{width:32,height:32,borderRadius:'50%',background:p.bg,color:p.fg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:500,flexShrink:0}}>
+                {c.colaboradores?.initials}
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:500,color:'#1a1a18'}}>{c.colaboradores?.nome.split(' ')[0]}</div>
+                <div style={{fontSize:11,color:'#999'}}>{time}</div>
+              </div>
+              <span style={{
+                fontSize:11,fontWeight:500,padding:'3px 8px',borderRadius:8,
+                background: c.tipo === 'total' ? '#EAF3DE' : '#FFF3CD',
+                color: c.tipo === 'total' ? '#27500A' : '#856404'
+              }}>
+                {c.tipo === 'total' ? 'Total ✓' : 'Parcial'}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+      <button className={styles.saveBtn} onClick={onAddMore}>
+        + Adicionar outro check
+      </button>
+      <button className={styles.dangerBtn} onClick={onRemoveAll} style={{marginTop:8}}>
+        Remover todos os checks
+      </button>
+      <button className={styles.cancelBtn} onClick={onClose}>Fechar</button>
     </>
   )
 }
@@ -524,8 +667,8 @@ function triggerFile(mode, callback) {
   inp.click()
 }
 
-function hasAlert(setorId, blocos, checks) {
-  return blocos.some(b => isLate(b.deadline) && b.tarefas.some(t => !checks[t.id]))
+function hasAlertSetor(setorId, blocos, checks, isConcluida) {
+  return blocos.some(b => isLate(b.deadline) && b.tarefas.some(t => !isConcluida(t.id)))
 }
 
 function avatarStyle(ci) {
@@ -534,6 +677,7 @@ function avatarStyle(ci) {
 }
 
 const CheckIcon = () => <svg width="10" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
+const HalfIcon = () => <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#856404" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
 const AlertIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#A32D2D" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><circle cx="12" cy="17" r="1" fill="#A32D2D" stroke="none"/></svg>
 const ClockIcon = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
 const CamIcon = ({ size = 15 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M16 7l-1.5-3h-5L8 7"/></svg>
