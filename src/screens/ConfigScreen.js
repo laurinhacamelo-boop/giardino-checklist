@@ -1,10 +1,12 @@
 // src/screens/ConfigScreen.js
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useAudit } from '../hooks/useAudit'
-import { supabase, uploadFile, storagePath } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
 import { paletteColor, PALETTE, getInitials } from '../lib/theme'
+import styles from './ConfigScreen.module.css'
+
 async function sha256(text) {
   const encoder = new TextEncoder()
   const data = encoder.encode(text)
@@ -12,37 +14,31 @@ async function sha256(text) {
   const hashArray = Array.from(new Uint8Array(hashBuffer))
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
 }
-import styles from './ConfigScreen.module.css'
 
 export default function ConfigScreen() {
-  const { user, logout, isGestor, isGerente } = useAuth()
+  const { user, logout, isGestor, isGerente, changePin } = useAuth()
   const { log } = useAudit()
   const navigate = useNavigate()
-  const [screen, setScreen] = useState('menu') // menu | setores | colabs | tarefas | alertas | stats | audit | mystats
+  const [screen, setScreen] = useState('menu')
   const [sheet, setSheet] = useState(null)
   const [setores, setSetores] = useState([])
   const [activeSetorId, setActiveSetorId] = useState(null)
 
-  useEffect(() => {
-    loadSetores()
-  }, [])
-
-  async function loadSetores() {
+  const loadSetores = useCallback(async () => {
     const { data } = await supabase.from('setores').select('*').eq('ativo', true).order('label')
     setSetores(data || [])
     if (!activeSetorId && data?.length) {
       setActiveSetorId(isGerente ? user.setor_id : data[0].id)
     }
-  }
+  }, [activeSetorId, isGerente, user.setor_id])
+
+  useEffect(() => { loadSetores() }, [])
 
   function goBack() { setScreen('menu') }
-
-  const p = user.setor_id ? paletteColor(setores.find(s => s.id === user.setor_id)?.color_idx || 0) : paletteColor(0)
   const userAv = paletteColor(user.color_idx)
 
   return (
     <div className={styles.app}>
-      {/* ── MENU PRINCIPAL ── */}
       {screen === 'menu' && (
         <>
           <div className={styles.topBar}>
@@ -64,13 +60,13 @@ export default function ConfigScreen() {
               onTarefas={(sid) => { setActiveSetorId(sid); setScreen('tarefas') }}
               onAlertas={() => setScreen('alertas')}
               onChecklist={() => navigate('/checklist')}
+              onChangePin={() => setSheet({ type: 'change-pin-self' })}
             />
             <button className={styles.logoutBtn} onClick={logout}>Sair</button>
           </div>
         </>
       )}
 
-      {/* ── SETORES ── */}
       {screen === 'setores' && (
         <SetoresScreen
           setores={setores} onBack={goBack}
@@ -82,58 +78,59 @@ export default function ConfigScreen() {
         />
       )}
 
-      {/* ── COLABORADORES ── */}
       {screen === 'colabs' && (
         <ColabsScreen
-          setores={setores} filterSetor={isGerente ? user.setor_id : null}
+          setores={setores}
+          filterSetor={isGerente ? user.setor_id : null}
+          isGestor={isGestor}
           onBack={goBack}
           onAdd={() => setSheet({ type: 'add-colab' })}
           onEdit={c => setSheet({ type: 'edit-colab', colab: c })}
           onDelete={c => setSheet({ type: 'del-colab', colab: c })}
-        />
-      )}
-
-      {/* ── TAREFAS / BLOCOS ── */}
-      {screen === 'tarefas' && activeSetorId && (
-        <TarefasScreen
-          setorId={activeSetorId}
-          setores={setores}
-          onBack={goBack}
+          onResetPin={c => setSheet({ type: 'reset-pin', colab: c })}
           log={log}
         />
       )}
 
-      {/* ── ALERTAS ── */}
+      {screen === 'tarefas' && activeSetorId && (
+        <TarefasScreen setorId={activeSetorId} setores={setores} onBack={goBack} log={log} />
+      )}
+
       {screen === 'alertas' && (
-        <AlertasScreen
-          setores={setores}
-          filterSetor={isGerente ? user.setor_id : null}
-          onBack={goBack} log={log}
-        />
+        <AlertasScreen setores={setores} filterSetor={isGerente ? user.setor_id : null} onBack={goBack} log={log} />
       )}
 
-      {/* ── ESTATÍSTICAS ── */}
       {screen === 'stats' && (
-        <StatsScreen
-          setores={setores}
-          filterSetor={isGerente ? user.setor_id : null}
-          onBack={goBack}
-        />
+        <StatsScreen setores={setores} filterSetor={isGerente ? user.setor_id : null} onBack={goBack} />
       )}
 
-      {/* ── MINHAS ESTATÍSTICAS ── */}
-      {screen === 'mystats' && (
-        <MyStatsScreen user={user} onBack={goBack} />
-      )}
+      {screen === 'mystats' && <MyStatsScreen user={user} onBack={goBack} />}
+      {screen === 'audit' && <AuditScreen onBack={goBack} setores={setores} />}
 
-      {/* ── AUDITORIA ── */}
-      {screen === 'audit' && (
-        <AuditScreen onBack={goBack} setores={setores} />
-      )}
-
-      {/* ── SHEETS ── */}
       {sheet && (
         <SheetOverlay onClose={() => setSheet(null)}>
+          {sheet.type === 'change-pin-self' && (
+            <ChangePinSelfSheet
+              onSave={async (currentPin, newPin) => {
+                await changePin(currentPin, newPin)
+                await log('config', 'alterou o próprio PIN', user.nome)
+                setSheet(null)
+              }}
+              onClose={() => setSheet(null)}
+            />
+          )}
+          {sheet.type === 'reset-pin' && (
+            <ResetPinSheet
+              colab={sheet.colab}
+              onSave={async (newPin) => {
+                const hash = await sha256(newPin)
+                await supabase.from('colaboradores').update({ pin_hash: hash }).eq('id', sheet.colab.id)
+                await log('config', 'redefiniu o PIN do colaborador', sheet.colab.nome, sheet.colab.setor_id)
+                setSheet(null)
+              }}
+              onClose={() => setSheet(null)}
+            />
+          )}
           {(sheet.type === 'add-setor' || sheet.type === 'edit-setor') && (
             <SetorSheet
               setor={sheet.setor}
@@ -145,7 +142,7 @@ export default function ConfigScreen() {
                   await supabase.from('setores').update({ label, color_idx: colorIdx }).eq('id', sheet.setor.id)
                   await log('setor', 'editou o setor', `${sheet.setor.label} → ${label}`)
                 }
-                loadSetores()
+                await loadSetores()
                 setSheet(null)
               }}
               onClose={() => setSheet(null)}
@@ -154,12 +151,12 @@ export default function ConfigScreen() {
           {sheet.type === 'del-setor' && (
             <ConfirmSheet
               title="Remover setor"
-              text={`Remover "${sheet.setor.label}"? Todos os blocos, tarefas e vínculos de colaboradores serão removidos.`}
+              text={`Remover "${sheet.setor.label}"? Todos os blocos, tarefas e vínculos serão removidos.`}
               danger
               onConfirm={async () => {
                 await supabase.from('setores').update({ ativo: false }).eq('id', sheet.setor.id)
                 await log('setor', 'removeu o setor', sheet.setor.label)
-                loadSetores()
+                await loadSetores()
                 setSheet(null)
               }}
               onClose={() => setSheet(null)}
@@ -214,9 +211,7 @@ export default function ConfigScreen() {
   )
 }
 
-// ── Sub-screens ────────────────────────────────────────────
-
-function MenuItems({ user, isGestor, isGerente, setores, onStats, onMyStats, onSetores, onAudit, onColabs, onTarefas, onAlertas, onChecklist }) {
+function MenuItems({ user, isGestor, isGerente, setores, onStats, onMyStats, onSetores, onAudit, onColabs, onTarefas, onAlertas, onChecklist, onChangePin }) {
   const setor = setores.find(s => s.id === user.setor_id)
   const p = setor ? paletteColor(setor.color_idx) : paletteColor(0)
   const sl = setor?.label || ''
@@ -226,6 +221,11 @@ function MenuItems({ user, isGestor, isGerente, setores, onStats, onMyStats, onS
       <div className={styles.secLbl}>Checklist</div>
       <div className={styles.cfgCard}>
         <CfgRow icon={<ListIcon stroke="#3B6D11" />} iconBg="#EAF3DE" label="Ir para os checklists" onClick={onChecklist} />
+      </div>
+
+      <div className={styles.secLbl}>Minha conta</div>
+      <div className={styles.cfgCard}>
+        <CfgRow icon={<KeyIcon stroke="#534AB7" />} iconBg="#EEEDFE" label="Alterar meu PIN" sub="Redefina sua senha de acesso" onClick={onChangePin} />
       </div>
 
       {user.role === 'colaborador' && (
@@ -316,24 +316,30 @@ function SetoresScreen({ setores, onBack, onAdd, onEdit, onDelete, onGoTarefas, 
             </div>
           )
         })}
-        <button className={styles.addBtn} onClick={onAdd}>
-          <PlusIcon /> Adicionar setor
-        </button>
+        <button className={styles.addBtn} onClick={onAdd}><PlusIcon /> Adicionar setor</button>
       </div>
     </>
   )
 }
 
-function ColabsScreen({ setores, filterSetor, onBack, onAdd, onEdit, onDelete }) {
+function ColabsScreen({ setores, filterSetor, isGestor, onBack, onAdd, onEdit, onDelete, onResetPin }) {
   const [colabs, setColabs] = useState([])
 
-  useEffect(() => {
-    const q = supabase.from('colaboradores')
+  const loadColabs = useCallback(async () => {
+    let q = supabase.from('colaboradores')
       .select('*, setores(label, color_idx)')
       .eq('ativo', true).order('nome')
-    if (filterSetor) q.eq('setor_id', filterSetor)
-    q.then(({ data }) => setColabs(data || []))
+    if (filterSetor) q = q.eq('setor_id', filterSetor)
+    const { data } = await q
+    setColabs(data || [])
   }, [filterSetor])
+
+  useEffect(() => { loadColabs() }, [loadColabs])
+
+  // Recarrega após sheet fechar
+  const handleEdit = async (c) => { onEdit(c); setTimeout(loadColabs, 800) }
+  const handleDelete = async (c) => { onDelete(c); setTimeout(loadColabs, 800) }
+  const handleAdd = () => { onAdd(); setTimeout(loadColabs, 800) }
 
   function rb(c) {
     if (c.role === 'gestor') return { lbl: 'Gestor', bg: '#EAF3DE', fg: '#27500A' }
@@ -357,13 +363,14 @@ function ColabsScreen({ setores, filterSetor, onBack, onAdd, onEdit, onDelete })
                 <span className={styles.badge} style={{ background: r.bg, color: r.fg }}>{r.lbl}</span>
               </div>
               <div className={styles.rowActions}>
-                <Ib onClick={() => onEdit(c)}><EditIcon /></Ib>
-                <Ib danger onClick={() => onDelete(c)}><TrashIcon /></Ib>
+                {isGestor && <Ib onClick={() => onResetPin(c)} title="Redefinir PIN"><KeyIcon size={13} /></Ib>}
+                <Ib onClick={() => handleEdit(c)}><EditIcon /></Ib>
+                <Ib danger onClick={() => handleDelete(c)}><TrashIcon /></Ib>
               </div>
             </div>
           )
         })}
-        <button className={styles.addBtn} onClick={onAdd}><PlusIcon /> Adicionar colaborador</button>
+        <button className={styles.addBtn} onClick={handleAdd}><PlusIcon /> Adicionar colaborador</button>
       </div>
     </>
   )
@@ -374,14 +381,14 @@ function TarefasScreen({ setorId, setores, onBack, log }) {
   const [sheet, setSheet] = useState(null)
   const setor = setores.find(s => s.id === setorId)
 
-  useEffect(() => { loadBlocos() }, [setorId])
-
-  async function loadBlocos() {
+  const loadBlocos = useCallback(async () => {
     const { data } = await supabase.from('blocos')
       .select('*, tarefas(id, label, ordem, ativa)')
       .eq('setor_id', setorId).order('ordem')
     setBlocos(data || [])
-  }
+  }, [setorId])
+
+  useEffect(() => { loadBlocos() }, [loadBlocos])
 
   async function saveBloco(data, blocoId) {
     if (blocoId) {
@@ -392,39 +399,38 @@ function TarefasScreen({ setorId, setores, onBack, log }) {
       await supabase.from('blocos').insert({ setor_id: setorId, label: data.label, deadline: data.deadline, ordem: blocos.length })
       await log('bloco', 'adicionou o bloco', data.label, setorId)
     }
-    loadBlocos(); setSheet(null)
+    await loadBlocos(); setSheet(null)
   }
 
   async function deleteBloco(bloco) {
     await supabase.from('blocos').delete().eq('id', bloco.id)
     await log('bloco', 'removeu o bloco', bloco.label, setorId)
-    loadBlocos(); setSheet(null)
+    await loadBlocos(); setSheet(null)
   }
 
   async function saveTarefa(label, blocoId, tarefaId) {
     if (tarefaId) {
-      const old = blocos.flatMap(b => b.tarefas).find(t => t.id === tarefaId)
       await supabase.from('tarefas').update({ label }).eq('id', tarefaId)
       await log('tarefa', 'editou a tarefa', label, setorId)
     } else {
       const bloco = blocos.find(b => b.id === blocoId)
-      await supabase.from('tarefas').insert({ bloco_id: blocoId, label, ordem: bloco.tarefas.length })
+      await supabase.from('tarefas').insert({ bloco_id: blocoId, label, ordem: bloco?.tarefas?.length || 0 })
       await log('tarefa', 'adicionou a tarefa', label, setorId)
     }
-    loadBlocos(); setSheet(null)
+    await loadBlocos(); setSheet(null)
   }
 
   async function deleteTarefa(tarefa) {
     await supabase.from('tarefas').update({ ativa: false }).eq('id', tarefa.id)
     await log('tarefa', 'removeu a tarefa', tarefa.label, setorId)
-    loadBlocos()
+    await loadBlocos()
   }
 
   return (
     <>
       <TopBar title={`${setor?.label || ''} — Blocos e tarefas`} onBack={onBack} />
       <div className={styles.body}>
-        {blocos.map((bloco, bi) => (
+        {blocos.map((bloco) => (
           <div key={bloco.id} className={styles.blockCard}>
             <div className={styles.blockHead}>
               <span className={styles.blockName}>{bloco.label}</span>
@@ -470,11 +476,14 @@ function AlertasScreen({ setores, filterSetor, onBack, log }) {
   const [blocos, setBlocos] = useState([])
   const filtered = filterSetor ? setores.filter(s => s.id === filterSetor) : setores
 
-  useEffect(() => {
+  const loadBlocos = useCallback(async () => {
     const ids = filtered.map(s => s.id)
-    supabase.from('blocos').select('*').in('setor_id', ids).order('setor_id').order('ordem')
-      .then(({ data }) => setBlocos(data || []))
-  }, [setores.length])
+    if (!ids.length) return
+    const { data } = await supabase.from('blocos').select('*').in('setor_id', ids).order('setor_id').order('ordem')
+    setBlocos(data || [])
+  }, [setores.length, filterSetor])
+
+  useEffect(() => { loadBlocos() }, [loadBlocos])
 
   async function update(blocoId, field, value) {
     await supabase.from('blocos').update({ [field]: value }).eq('id', blocoId)
@@ -487,7 +496,6 @@ function AlertasScreen({ setores, filterSetor, onBack, log }) {
       <TopBar title="Horários e alertas" onBack={onBack} />
       <div className={styles.body}>
         {filtered.map(s => {
-          const p = paletteColor(s.color_idx)
           const sBlocos = blocos.filter(b => b.setor_id === s.id)
           return (
             <div key={s.id}>
@@ -516,14 +524,12 @@ function StatsScreen({ setores, filterSetor, onBack }) {
   const [setorFilter, setSetorFilter] = useState('todos')
   const [colabStats, setColabStats] = useState([])
 
-  // Dados simulados — em produção, vêm de queries reais na tabela checks
   const weekData = { labels: ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'], values: [87,92,78,95,88,72,0], cur: 6 }
   const monthData = { labels: ['S1','S2','S3','S4'], values: [82,89,85,91], cur: 3 }
   const data = period === 'week' ? weekData : monthData
   const maxV = Math.max(...data.values, 1)
 
   useEffect(() => {
-    // Em produção: query agregada de checks por colaborador no período
     const mockStats = [
       { id: 1, nome: 'Ana Lima', initials: 'AL', color_idx: 0, setor_id: setores[0]?.id, checks: 142, total: 160 },
       { id: 2, nome: 'Carlos Souza', initials: 'CS', color_idx: 2, setor_id: setores[0]?.id, checks: 131, total: 160 },
@@ -597,7 +603,7 @@ function StatsScreen({ setores, filterSetor, onBack }) {
 }
 
 function MyStatsScreen({ user, onBack }) {
-  const pct = 87 // Em produção: query real
+  const pct = 87
   const bc = pct >= 90 ? '#3B6D11' : pct >= 70 ? '#BA7517' : '#E24B4A'
   const wvals = [72,85,90,88,95,70,0]
   const maxW = Math.max(...wvals)
@@ -608,10 +614,10 @@ function MyStatsScreen({ user, onBack }) {
         <div className={styles.myHero}>
           <div className={styles.myCircle} style={{ borderColor: bc }}>
             <div style={{ fontSize: 22, fontWeight: 500, color: bc }}>{pct}%</div>
-            <div style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>conclusão</div>
+            <div style={{ fontSize: 11, color: '#666' }}>conclusão</div>
           </div>
           <div style={{ fontSize: 15, fontWeight: 500 }}>{user.nome}</div>
-          <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>Esta semana</div>
+          <div style={{ fontSize: 12, color: '#666' }}>Esta semana</div>
         </div>
         <div className={styles.chartWrap}>
           <div className={styles.chartTitle}>Minha semana</div>
@@ -650,7 +656,6 @@ function AuditScreen({ onBack, setores }) {
 
   const TIPO_LABELS = { colab:'Colaborador', tarefa:'Tarefa', bloco:'Bloco', setor:'Setor', config:'Config', check:'Check' }
   const TIPO_COLORS = { colab:{bg:'#EAF3DE',fg:'#27500A'}, tarefa:{bg:'#E6F1FB',fg:'#0C447C'}, bloco:{bg:'#FAEEDA',fg:'#633806'}, setor:{bg:'#EEEDFE',fg:'#3C3489'}, config:{bg:'#FCEBEB',fg:'#791F1F'}, check:{bg:'#E1F5EE',fg:'#085041'} }
-
   const filtered = filter === 'todos' ? items : items.filter(i => i.tipo === filter)
 
   return (
@@ -690,7 +695,63 @@ function AuditScreen({ onBack, setores }) {
   )
 }
 
-// ── Sheet forms ────────────────────────────────────────────
+function ChangePinSelfSheet({ onSave, onClose }) {
+  const [currentPin, setCurrentPin] = useState('')
+  const [newPin, setNewPin] = useState('')
+  const [confirmPin, setConfirmPin] = useState('')
+  const [step, setStep] = useState('current')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function handleSave() {
+    if (newPin !== confirmPin) { setError('Os PINs não coincidem'); return }
+    setLoading(true)
+    try { await onSave(currentPin, newPin) }
+    catch (e) { setError(e.message) }
+    finally { setLoading(false) }
+  }
+
+  return (
+    <>
+      <div className={styles.sheetTitle}>Alterar meu PIN</div>
+      {step === 'current' && (
+        <>
+          <div className={styles.formGroup}><div className={styles.formLabel}>PIN atual</div><PinInput value={currentPin} onChange={setCurrentPin} /></div>
+          <button className={styles.saveBtn} disabled={currentPin.length !== 4} onClick={() => { setStep('new'); setError('') }}>Continuar</button>
+        </>
+      )}
+      {step === 'new' && (
+        <>
+          <div className={styles.formGroup}><div className={styles.formLabel}>Novo PIN</div><PinInput value={newPin} onChange={setNewPin} /></div>
+          <button className={styles.saveBtn} disabled={newPin.length !== 4} onClick={() => { setStep('confirm'); setError('') }}>Continuar</button>
+        </>
+      )}
+      {step === 'confirm' && (
+        <>
+          <div className={styles.formGroup}><div className={styles.formLabel}>Confirme o novo PIN</div><PinInput value={confirmPin} onChange={setConfirmPin} /></div>
+          {error && <div style={{color:'#A32D2D',fontSize:13,marginBottom:8}}>{error}</div>}
+          <button className={styles.saveBtn} disabled={confirmPin.length !== 4 || loading} onClick={handleSave}>Salvar novo PIN</button>
+        </>
+      )}
+      <button className={styles.cancelBtn} onClick={onClose}>Cancelar</button>
+    </>
+  )
+}
+
+function ResetPinSheet({ colab, onSave, onClose }) {
+  const [newPin, setNewPin] = useState('')
+  const [loading, setLoading] = useState(false)
+  return (
+    <>
+      <div className={styles.sheetTitle}>Redefinir PIN</div>
+      <div style={{fontSize:13,color:'#666',marginBottom:16}}>Novo PIN para <strong>{colab.nome}</strong></div>
+      <div className={styles.formGroup}><div className={styles.formLabel}>Novo PIN (4 dígitos)</div><PinInput value={newPin} onChange={setNewPin} /></div>
+      <button className={styles.saveBtn} disabled={newPin.length !== 4 || loading}
+        onClick={async () => { setLoading(true); await onSave(newPin); setLoading(false) }}>Salvar</button>
+      <button className={styles.cancelBtn} onClick={onClose}>Cancelar</button>
+    </>
+  )
+}
 
 function SetorSheet({ setor, onSave, onClose }) {
   const [label, setLabel] = useState(setor?.label || '')
@@ -698,12 +759,9 @@ function SetorSheet({ setor, onSave, onClose }) {
   return (
     <>
       <div className={styles.sheetTitle}>{setor ? 'Editar setor' : 'Novo setor'}</div>
-      <div className={styles.formGroup}>
-        <div className={styles.formLabel}>Nome do setor</div>
-        <input className={styles.formInput} value={label} onChange={e => setLabel(e.target.value)} placeholder="Ex: Bar, Eventos..." />
-      </div>
-      <div className={styles.formGroup}>
-        <div className={styles.formLabel}>Cor</div>
+      <div className={styles.formGroup}><div className={styles.formLabel}>Nome do setor</div>
+        <input className={styles.formInput} value={label} onChange={e => setLabel(e.target.value)} placeholder="Ex: Bar, Eventos..." /></div>
+      <div className={styles.formGroup}><div className={styles.formLabel}>Cor</div>
         <div className={styles.colorPicker}>
           {PALETTE.map((p, i) => (
             <div key={i} className={`${styles.colorSwatch} ${colorIdx === i ? styles.colorSwatchSel : ''}`}
@@ -731,12 +789,9 @@ function ColabSheet({ colab, setores, userRole, userSetorId, onSave, onClose }) 
   return (
     <>
       <div className={styles.sheetTitle}>{colab ? 'Editar colaborador' : 'Novo colaborador'}</div>
-      <div className={styles.formGroup}>
-        <div className={styles.formLabel}>Nome completo</div>
-        <input className={styles.formInput} value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome" />
-      </div>
-      <div className={styles.formGroup}>
-        <div className={styles.formLabel}>Função</div>
+      <div className={styles.formGroup}><div className={styles.formLabel}>Nome completo</div>
+        <input className={styles.formInput} value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome" /></div>
+      <div className={styles.formGroup}><div className={styles.formLabel}>Função</div>
         <div className={styles.roleOpts}>
           {roles.map(r => (
             <div key={r} className={`${styles.roleOpt} ${role === r ? styles.roleOptSel : ''}`} onClick={() => setRole(r)}>
@@ -745,19 +800,16 @@ function ColabSheet({ colab, setores, userRole, userSetorId, onSave, onClose }) 
           ))}
         </div>
       </div>
-      <div className={styles.formGroup}>
-        <div className={styles.formLabel}>Setor</div>
+      <div className={styles.formGroup}><div className={styles.formLabel}>Setor</div>
         <select className={styles.formSelect} value={setorId} onChange={e => setSetorId(e.target.value)}>
           {setoresList.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
           {userRole === 'gestor' && <option value="">— Sem setor</option>}
         </select>
       </div>
-      <div className={styles.formGroup}>
-        <div className={styles.formLabel}>PIN de acesso {colab ? '(deixe vazio para não alterar)' : '(4 dígitos)'}</div>
-        <PinInput value={pin} onChange={setPin} />
-      </div>
+      <div className={styles.formGroup}><div className={styles.formLabel}>PIN {colab ? '(deixe vazio para não alterar)' : '(4 dígitos)'}</div>
+        <PinInput value={pin} onChange={setPin} /></div>
       <button className={styles.saveBtn} disabled={!canSave}
-        onClick={() => onSave({ nome, role, setor_id: setorId || null, pin: pin || colab?.pin || '0000', pinChanged: pin.length === 4, color_idx: colorIdx })}>
+        onClick={() => onSave({ nome, role, setor_id: setorId || null, pin: pin || '0000', pinChanged: pin.length === 4, color_idx: colorIdx })}>
         Salvar
       </button>
       <button className={styles.cancelBtn} onClick={onClose}>Cancelar</button>
@@ -824,8 +876,6 @@ function PinInput({ value, onChange }) {
   )
 }
 
-// ── Shared UI ──────────────────────────────────────────────
-
 function TopBar({ title, onBack }) {
   return (
     <div className={styles.topBar}>
@@ -851,8 +901,8 @@ function CfgRow({ icon, iconBg, label, sub, count, onClick }) {
   )
 }
 
-function Ib({ children, danger, onClick }) {
-  return <div className={`${styles.ib} ${danger ? styles.ibDanger : ''}`} onClick={onClick}>{children}</div>
+function Ib({ children, danger, onClick, title }) {
+  return <div className={`${styles.ib} ${danger ? styles.ibDanger : ''}`} onClick={onClick} title={title}>{children}</div>
 }
 
 function Toggle({ on, onChange }) {
@@ -875,13 +925,12 @@ function SheetOverlay({ children, onClose }) {
   )
 }
 
-// Icons
 const BackIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
-const ChevronIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-tertiary)" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+const ChevronIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
 const EditIcon = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
 const TrashIcon = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
 const PlusIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-const ClockIcon = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-tertiary)" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+const ClockIcon = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
 const ChartIcon = ({ stroke }) => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
 const HomeIcon = ({ stroke }) => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
 const FileIcon = ({ stroke }) => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -889,3 +938,4 @@ const ListIcon = ({ stroke }) => <svg width="16" height="16" viewBox="0 0 24 24"
 const UsersIcon = ({ stroke, size=16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
 const CheckSquareIcon = ({ stroke, size=16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="1.5"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
 const BellIcon = ({ stroke }) => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="1.5"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+const KeyIcon = ({ stroke = '#534AB7', size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="1.5"><circle cx="8" cy="15" r="5"/><path d="M21 2l-9.3 9.3M15 8l3 3"/></svg>
