@@ -101,7 +101,7 @@ export default function ConfigScreen() {
       )}
 
       {screen === 'stats' && (
-        <StatsScreen setores={setores} filterSetor={isGerente ? user.setor_id : null} onBack={goBack} />
+        <StatsScreen setores={setores} filterSetores={isGerente ? (user.setores?.map(s => s.id) || [user.setor_id]) : null} onBack={goBack} />
       )}
 
       {screen === 'mystats' && <MyStatsScreen user={user} onBack={goBack} />}
@@ -537,7 +537,9 @@ function AlertasScreen({ setores, filterSetor, onBack, log }) {
   )
 }
 
-function StatsScreen({ setores, filterSetor, onBack }) {
+function StatsScreen({ setores, filterSetores, onBack }) {
+  const filterSetor = filterSetores?.length === 1 ? filterSetores[0] : null
+  const filterLabel = filterSetores ? setores.filter(s => filterSetores.includes(s.id)).map(s => s.label).join(' · ') : null
   const [period, setPeriod] = useState('week')
   const [setorFilter, setSetorFilter] = useState('todos')
   const [colabStats, setColabStats] = useState([])
@@ -566,7 +568,7 @@ function StatsScreen({ setores, filterSetor, onBack }) {
 
   return (
     <>
-      <TopBar title={filterSetor ? `Estatísticas — ${setores.find(s=>s.id===filterSetor)?.label}` : 'Painel estratégico'} onBack={onBack} />
+      <TopBar title={filterLabel ? `Estatísticas — ${filterLabel}` : 'Painel estratégico'} onBack={onBack} />
       <div className={styles.body}>
         <div className={styles.periodRow}>
           <button className={`${styles.periodBtn} ${period==='week'?styles.periodActive:''}`} onClick={() => setPeriod('week')}>Esta semana</button>
