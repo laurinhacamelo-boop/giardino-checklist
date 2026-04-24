@@ -236,7 +236,7 @@ export default function ChecklistScreen() {
                 const lista = checks[tarefa.id] || []
                 const temChecks = lista.length > 0
                 const overdue = late && !concluida
-                const fotos = lista.flatMap(c => c.check_fotos || [])
+                const fotos = lista.filter(Boolean).flatMap(c => c?.check_fotos || [])
 
                 return (
                   <div key={tarefa.id}
