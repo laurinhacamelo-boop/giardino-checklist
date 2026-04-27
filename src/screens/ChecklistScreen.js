@@ -93,7 +93,7 @@ export default function ChecklistScreen() {
   // Tarefa concluída = tem pelo menos um check total
   function isConcluida(tarefaId) {
     const lista = checks[tarefaId] || []
-    return lista.some(c => !c || c.tipo === 'total' || c.tipo === null || c.tipo === undefined)
+    return lista.filter(Boolean).some(c => c.tipo === 'total' || c.tipo === null || c.tipo === undefined)
   }
 
   function hasAnyCheck(tarefaId) {
