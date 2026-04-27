@@ -111,12 +111,17 @@ export default function ChecklistScreen() {
   }
 
   async function confirmCheck(tarefa, colaboradorId, tipo) {
-    const { data } = await supabase.from('checks').insert({
+    const { data, error } = await supabase.from('checks').insert({
       tarefa_id: tarefa.id,
       colaborador_id: colaboradorId,
       data: today(),
       tipo,
-    }).select('*, colaboradores(nome, initials, color_idx)').single()
+    }).select('*, colaboradores(nome, initials, color_idx), check_fotos(id, storage_path)').single()
+
+    if (error) {
+      alert('Erro ao salvar check: ' + error.message)
+      return
+    }
 
     setChecks(prev => ({
       ...prev,
