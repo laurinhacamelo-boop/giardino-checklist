@@ -550,221 +550,220 @@ function StatsScreen({ setores, filterSetores, onBack }) {
 
   const [period, setPeriod] = useState('week')
   const [setorFilter, setSetorFilter] = useState('todos')
+  const [colabFilter, setColabFilter] = useState('todos')
   const [selectedDate, setSelectedDate] = useState(null)
   const [weekData, setWeekData] = useState([])
   const [monthData, setMonthData] = useState([])
   const [dayDetail, setDayDetail] = useState(null)
+  const [colaboradores, setColaboradores] = useState([])
+  const [calMonth, setCalMonth] = useState(() => {
+    const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }
+  })
   const [loading, setLoading] = useState(true)
 
-  function localDate(offset = 0) {
-    const d = new Date()
-    d.setDate(d.getDate() + offset)
+  const setorIds = filterSetores || setores.map(s => s.id)
+  const setorIdsFiltered = setorFilter === 'todos' ? setorIds : [setorFilter]
+
+  function localDateStr(d) {
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
   }
 
-  function fmtLabel(dateStr, short = true) {
+  function todayStr() {
+    return localDateStr(new Date())
+  }
+
+  function fmtFull(dateStr) {
     const d = new Date(dateStr + 'T12:00:00')
-    if (short) return d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.','')
     return d.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })
   }
 
-  const setorIds = filterSetores || setores.map(s => s.id)
+  function fmtShort(dateStr) {
+    const d = new Date(dateStr + 'T12:00:00')
+    return d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.','')
+  }
+
+  async function getTarefaIds(sIds) {
+    const { data } = await supabase
+      .from('tarefas')
+      .select('id, blocos!inner(setor_id)')
+      .eq('ativa', true)
+      .in('blocos.setor_id', sIds)
+    return data?.map(t => t.id) || []
+  }
 
   async function loadStats() {
     setLoading(true)
     try {
-      // Busca total de tarefas ativas nos setores
-      const { data: tarefasData } = await supabase
-        .from('tarefas')
-        .select('id, blocos!inner(setor_id)')
-        .eq('ativa', true)
-        .in('blocos.setor_id', setorIds)
+      const tarefaIds = await getTarefaIds(setorIdsFiltered)
+      if (!tarefaIds.length) { setLoading(false); return }
+      const totalTarefas = tarefaIds.length
 
-      const totalTarefas = tarefasData?.length || 0
-      if (totalTarefas === 0) { setLoading(false); return }
-
-      const tarefaIds = tarefasData.map(t => t.id)
-
-      // Semana: últimos 7 dias
-      const dias = Array.from({ length: 7 }, (_, i) => localDate(i - 6))
-      const semanaResult = []
+      // Últimos 7 dias
+      const dias = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(); d.setDate(d.getDate() - (6 - i)); return localDateStr(d)
+      })
+      const semana = []
       for (const dia of dias) {
-        const { data: checksDay } = await supabase
-          .from('checks')
-          .select('tarefa_id, tipo')
-          .in('tarefa_id', tarefaIds)
-          .eq('data', dia)
-        const concluidas = new Set(
-          checksDay?.filter(c => c.tipo === 'total' || c.tipo === null).map(c => c.tarefa_id)
-        )
-        semanaResult.push({
-          date: dia,
-          label: fmtLabel(dia),
-          pct: totalTarefas > 0 ? Math.round(concluidas.size / totalTarefas * 100) : 0,
-          done: concluidas.size,
-          total: totalTarefas,
-        })
+        const { data: ch } = await supabase.from('checks')
+          .select('tarefa_id, tipo').in('tarefa_id', tarefaIds).eq('data', dia)
+        const concluidas = new Set(ch?.filter(c => c.tipo === 'total' || !c.tipo).map(c => c.tarefa_id))
+        semana.push({ date: dia, label: fmtShort(dia), pct: Math.round(concluidas.size / totalTarefas * 100), done: concluidas.size, total: totalTarefas })
       }
-      setWeekData(semanaResult)
+      setWeekData(semana)
 
-      // Mês: últimas 4 semanas
-      const semanasResult = []
+      // Últimas 4 semanas
+      const mes = []
       for (let w = 3; w >= 0; w--) {
-        const inicio = localDate(-w * 7 - 6)
-        const fim = localDate(-w * 7)
-        const { data: checksWeek } = await supabase
-          .from('checks')
+        const inicio = new Date(); inicio.setDate(inicio.getDate() - w * 7 - 6)
+        const fim = new Date(); fim.setDate(fim.getDate() - w * 7)
+        const { data: ch } = await supabase.from('checks')
           .select('tarefa_id, tipo, data')
           .in('tarefa_id', tarefaIds)
-          .gte('data', inicio)
-          .lte('data', fim)
-        const diasComCheck = new Set(checksWeek?.map(c => c.data) || [])
-        const totalPossivel = totalTarefas * Math.min(diasComCheck.size || 1, 7)
-        const concluidas = checksWeek?.filter(c => c.tipo === 'total' || c.tipo === null).length || 0
-        semanasResult.push({
-          label: `S${4 - w}`,
-          pct: totalPossivel > 0 ? Math.round(concluidas / totalPossivel * 100) : 0,
-        })
+          .gte('data', localDateStr(inicio)).lte('data', localDateStr(fim))
+        const diasUnicos = new Set(ch?.map(c => c.data) || [])
+        const totalPos = totalTarefas * Math.max(diasUnicos.size, 1)
+        const concluidas = ch?.filter(c => c.tipo === 'total' || !c.tipo).length || 0
+        mes.push({ label: `S${4-w}`, pct: Math.round(concluidas / totalPos * 100) })
       }
-      setMonthData(semanasResult)
-    } finally {
-      setLoading(false)
-    }
+      setMonthData(mes)
+    } finally { setLoading(false) }
+  }
+
+  async function loadColabs() {
+    const { data } = await supabase.from('colaboradores')
+      .select('id, nome, initials, color_idx, setor_id')
+      .eq('ativo', true).in('setor_id', setorIdsFiltered).order('nome')
+    setColaboradores(data || [])
   }
 
   async function loadDayDetail(date) {
     setSelectedDate(date)
-    const setorIdsFiltered = setorFilter === 'todos' ? setorIds
-      : [setorFilter]
-
-    const { data: tarefasData } = await supabase
-      .from('tarefas')
+    const tarefaIds = await getTarefaIds(setorIdsFiltered)
+    const { data: tarefas } = await supabase.from('tarefas')
       .select('id, label, blocos!inner(label, deadline, setor_id, setores(label))')
-      .eq('ativa', true)
-      .in('blocos.setor_id', setorIdsFiltered)
-
-    const tarefaIds = tarefasData?.map(t => t.id) || []
-
-    const { data: checksData } = await supabase
-      .from('checks')
-      .select('tarefa_id, tipo, colaboradores(nome, initials, color_idx)')
-      .in('tarefa_id', tarefaIds)
-      .eq('data', date)
+      .eq('ativa', true).in('blocos.setor_id', setorIdsFiltered)
+    const { data: checks } = await supabase.from('checks')
+      .select('tarefa_id, tipo, colaborador_id, colaboradores(nome, initials, color_idx)')
+      .in('tarefa_id', tarefaIds).eq('data', date)
 
     const checksMap = {}
-    checksData?.forEach(c => {
+    checks?.forEach(c => {
       if (!checksMap[c.tarefa_id]) checksMap[c.tarefa_id] = []
       checksMap[c.tarefa_id].push(c)
     })
 
-    setDayDetail({ date, tarefas: tarefasData || [], checksMap })
+    // Filtra por colaborador se necessário
+    const tarefasFiltradas = colabFilter === 'todos' ? tarefas : tarefas?.filter(t => {
+      const tChecks = checksMap[t.id] || []
+      return tChecks.some(c => c.colaborador_id === colabFilter)
+    })
+
+    setDayDetail({ date, tarefas: tarefasFiltradas || [], checksMap })
   }
 
-  useEffect(() => { loadStats() }, [setorIds.join(','), setores.length])
+  useEffect(() => { loadStats(); loadColabs() }, [setorFilter, setores.length])
+
+  // Calendário
+  function CalendarioMes() {
+    const { year, month } = calMonth
+    const firstDay = new Date(year, month, 1).getDay()
+    const daysInMonth = new Date(year, month + 1, 0).getDate()
+    const today = todayStr()
+    const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+    const semDias = ['D','S','T','Q','Q','S','S']
+
+    const cells = []
+    for (let i = 0; i < firstDay; i++) cells.push(null)
+    for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+
+    return (
+      <div style={{background:'white',borderRadius:12,border:'0.5px solid #e5e5e5',padding:16,marginBottom:16}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+          <button onClick={() => setCalMonth(p => {
+            const d = new Date(p.year, p.month - 1); return { year: d.getFullYear(), month: d.getMonth() }
+          })} style={{background:'none',border:'none',cursor:'pointer',fontSize:18,color:'#666'}}>‹</button>
+          <div style={{fontSize:14,fontWeight:500,color:'#1a1a18'}}>{meses[month]} {year}</div>
+          <button onClick={() => setCalMonth(p => {
+            const d = new Date(p.year, p.month + 1); return { year: d.getFullYear(), month: d.getMonth() }
+          })} style={{background:'none',border:'none',cursor:'pointer',fontSize:18,color:'#666'}}>›</button>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2,marginBottom:4}}>
+          {semDias.map((d,i) => <div key={i} style={{textAlign:'center',fontSize:10,color:'#999',fontWeight:500,padding:'2px 0'}}>{d}</div>)}
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
+          {cells.map((d, i) => {
+            if (!d) return <div key={i} />
+            const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+            const isToday = dateStr === today
+            const isSel = dateStr === selectedDate
+            const isFuture = dateStr > today
+            const dayData = weekData.find(w => w.date === dateStr)
+            const pct = dayData?.pct
+            const dotColor = pct >= 90 ? '#3B6D11' : pct >= 70 ? '#BA7517' : pct > 0 ? '#E24B4A' : null
+
+            return (
+              <div key={i}
+                onClick={() => !isFuture && loadDayDetail(dateStr)}
+                style={{
+                  display:'flex',flexDirection:'column',alignItems:'center',padding:'4px 2px',
+                  borderRadius:8,cursor: isFuture ? 'default' : 'pointer',
+                  background: isSel ? '#3B6D11' : isToday ? '#EAF3DE' : 'transparent',
+                  border: isToday && !isSel ? '1px solid #3B6D11' : '1px solid transparent',
+                  opacity: isFuture ? 0.3 : 1,
+                }}>
+                <span style={{fontSize:13,fontWeight: isToday||isSel ? 600 : 400, color: isSel ? 'white' : '#1a1a18'}}>{d}</span>
+                {dotColor && !isFuture && (
+                  <div style={{width:5,height:5,borderRadius:'50%',background: isSel ? 'white' : dotColor,marginTop:1}} />
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
 
   const chartData = period === 'week' ? weekData : monthData
   const maxV = Math.max(...chartData.map(d => d.pct), 1)
   const mediaDiaria = weekData.filter(d => d.pct > 0).length > 0
-    ? Math.round(weekData.filter(d => d.pct > 0).reduce((a, d) => a + d.pct, 0) / weekData.filter(d => d.pct > 0).length)
-    : 0
+    ? Math.round(weekData.filter(d => d.pct > 0).reduce((a, d) => a + d.pct, 0) / weekData.filter(d => d.pct > 0).length) : 0
   const taxaHoje = weekData[weekData.length - 1]?.pct || 0
-
-  if (dayDetail) return (
-    <>
-      <TopBar title={fmtLabel(dayDetail.date, false)} onBack={() => setDayDetail(null)} />
-      <div className={styles.body}>
-        {dayDetail.tarefas.map(t => {
-          const checks = dayDetail.checksMap[t.id] || []
-          const concluida = checks.some(c => c.tipo === 'total' || c.tipo === null)
-          const parciais = checks.filter(c => c.tipo === 'parcial')
-          return (
-            <div key={t.id} className={styles.csCard} style={{flexDirection:'column',alignItems:'flex-start',gap:6}}>
-              <div style={{display:'flex',alignItems:'center',gap:10,width:'100%'}}>
-                <div style={{
-                  width:22,height:22,borderRadius:'50%',flexShrink:0,
-                  background: concluida ? '#3B6D11' : checks.length > 0 ? '#D4A017' : '#e5e5e5',
-                  display:'flex',alignItems:'center',justifyContent:'center'
-                }}>
-                  {concluida && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>}
-                </div>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:13,fontWeight:500,color: concluida ? '#999' : '#1a1a18', textDecoration: concluida ? 'line-through' : 'none'}}>{t.label}</div>
-                  <div style={{fontSize:11,color:'#999'}}>{t.blocos?.setores?.label} · {t.blocos?.label}</div>
-                </div>
-              </div>
-              {checks.length > 0 && (
-                <div style={{display:'flex',gap:6,flexWrap:'wrap',paddingLeft:32}}>
-                  {checks.map((c, i) => {
-                    const p = paletteColor(c.colaboradores?.color_idx || 0)
-                    return (
-                      <span key={i} style={{
-                        fontSize:11,fontWeight:500,padding:'2px 8px',borderRadius:8,
-                        background: c.tipo === 'total' || !c.tipo ? p.bg : '#FFF3CD',
-                        color: c.tipo === 'total' || !c.tipo ? p.fg : '#856404'
-                      }}>
-                        {c.colaboradores?.nome?.split(' ')[0]} {c.tipo === 'parcial' ? '(parcial)' : '✓'}
-                      </span>
-                    )
-                  })}
-                </div>
-              )}
-              {checks.length === 0 && (
-                <div style={{paddingLeft:32,fontSize:11,color:'#E24B4A'}}>Não realizado</div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-    </>
-  )
 
   return (
     <>
       <TopBar title={filterLabel ? `Estatísticas — ${filterLabel}` : 'Painel estratégico'} onBack={onBack} />
       <div className={styles.body}>
-        {loading ? (
-          <div className={styles.emptyHint}>Carregando dados...</div>
-        ) : (
+        {loading ? <div className={styles.emptyHint}>Carregando...</div> : (
           <>
-            <div className={styles.periodRow}>
-              <button className={`${styles.periodBtn} ${period==='week'?styles.periodActive:''}`} onClick={() => setPeriod('week')}>Esta semana</button>
-              <button className={`${styles.periodBtn} ${period==='month'?styles.periodActive:''}`} onClick={() => setPeriod('month')}>Este mês</button>
-            </div>
-
             <div className={styles.metricGrid}>
               <div className={styles.metricCard}>
                 <div className={styles.metricVal}>{taxaHoje}%</div>
                 <div className={styles.metricLbl}>Conclusão hoje</div>
-                <div className={styles.metricSub} style={{color: taxaHoje >= 90 ? '#3B6D11' : taxaHoje >= 70 ? '#BA7517' : '#E24B4A'}}>
-                  {taxaHoje >= 90 ? 'Excelente!' : taxaHoje >= 70 ? 'Bom progresso' : 'Atenção necessária'}
+                <div className={styles.metricSub} style={{color: taxaHoje>=90?'#3B6D11':taxaHoje>=70?'#BA7517':'#E24B4A'}}>
+                  {taxaHoje>=90?'Excelente!':taxaHoje>=70?'Bom progresso':'Atenção'}
                 </div>
               </div>
               <div className={styles.metricCard}>
                 <div className={styles.metricVal}>{mediaDiaria}%</div>
                 <div className={styles.metricLbl}>Média diária</div>
-                <div className={styles.metricSub} style={{color: mediaDiaria >= 90 ? '#3B6D11' : '#BA7517'}}>
-                  {period === 'week' ? 'Esta semana' : 'Este mês'}
-                </div>
+                <div className={styles.metricSub} style={{color:'#666'}}>Esta semana</div>
               </div>
             </div>
 
+            <div className={styles.periodRow}>
+              <button className={`${styles.periodBtn} ${period==='week'?styles.periodActive:''}`} onClick={() => setPeriod('week')}>Semana</button>
+              <button className={`${styles.periodBtn} ${period==='month'?styles.periodActive:''}`} onClick={() => setPeriod('month')}>Mês</button>
+            </div>
+
             <div className={styles.chartWrap}>
-              <div className={styles.chartTitle}>
-                Conclusão {period === 'week' ? 'por dia (clique para ver detalhes)' : 'por semana'} (%)
-              </div>
+              <div className={styles.chartTitle}>Taxa de conclusão (%)</div>
               <div className={styles.barChart}>
                 {chartData.map((d, i) => {
-                  const h = d.pct > 0 ? Math.round((d.pct / maxV) * 80) : 2
-                  const isToday = period === 'week' && i === chartData.length - 1
+                  const h = d.pct > 0 ? Math.round((d.pct/maxV)*80) : 2
+                  const isToday = period==='week' && i===chartData.length-1
                   return (
-                    <div key={i} className={styles.barCol}
-                      onClick={() => period === 'week' && d.date && loadDayDetail(d.date)}
-                      style={{ cursor: period === 'week' ? 'pointer' : 'default' }}>
-                      <div className={styles.bar} style={{
-                        height: h,
-                        background: isToday ? '#3B6D11' : '#C0DD97',
-                        borderRadius: '4px 4px 0 0'
-                      }}>
+                    <div key={i} className={styles.barCol}>
+                      <div className={styles.bar} style={{height:h, background: isToday?'#3B6D11':'#C0DD97'}}>
                         {d.pct > 0 && <span className={styles.barVal}>{d.pct}%</span>}
                       </div>
                       <div className={styles.barLbl}>{d.label}</div>
@@ -775,38 +774,64 @@ function StatsScreen({ setores, filterSetores, onBack }) {
             </div>
 
             {setoresVisiveis.length > 1 && (
-              <>
-                <div className={styles.secLbl} style={{marginTop:0}}>Filtrar por setor</div>
-                <div className={styles.setorFilter}>
-                  <button className={`${styles.sfBtn} ${setorFilter==='todos'?styles.sfActive:''}`} onClick={() => setSetorFilter('todos')}>Todos</button>
-                  {setoresVisiveis.map(s => (
-                    <button key={s.id} className={`${styles.sfBtn} ${setorFilter===s.id?styles.sfActive:''}`} onClick={() => setSetorFilter(s.id)}>{s.label}</button>
-                  ))}
-                </div>
-              </>
+              <div className={styles.setorFilter}>
+                <button className={`${styles.sfBtn} ${setorFilter==='todos'?styles.sfActive:''}`} onClick={() => { setSetorFilter('todos'); setDayDetail(null) }}>Todos</button>
+                {setoresVisiveis.map(s => (
+                  <button key={s.id} className={`${styles.sfBtn} ${setorFilter===s.id?styles.sfActive:''}`} onClick={() => { setSetorFilter(s.id); setDayDetail(null) }}>{s.label}</button>
+                ))}
+              </div>
             )}
 
-            <div className={styles.secLbl} style={{marginTop:8}}>Detalhes por dia</div>
-            {weekData.map((d, i) => {
-              const bc = d.pct >= 90 ? '#3B6D11' : d.pct >= 70 ? '#BA7517' : '#E24B4A'
-              const isToday = i === weekData.length - 1
-              return (
-                <div key={i} className={styles.csCard}
-                  style={{cursor:'pointer'}}
-                  onClick={() => loadDayDetail(d.date)}>
-                  <div style={{flex:1}}>
-                    <div className={styles.csName} style={{fontWeight: isToday ? 600 : 400}}>
-                      {isToday ? 'Hoje' : fmtLabel(d.date, false)}
+            <div className={styles.setorFilter} style={{marginBottom:16}}>
+              <button className={`${styles.sfBtn} ${colabFilter==='todos'?styles.sfActive:''}`} onClick={() => { setColabFilter('todos'); setDayDetail(null) }}>Todos</button>
+              {colaboradores.map(c => (
+                <button key={c.id} className={`${styles.sfBtn} ${colabFilter===c.id?styles.sfActive:''}`} onClick={() => { setColabFilter(c.id); setDayDetail(null) }}>{c.nome.split(' ')[0]}</button>
+              ))}
+            </div>
+
+            <CalendarioMes />
+
+            {selectedDate && dayDetail && (
+              <>
+                <div className={styles.secLbl}>{selectedDate === todayStr() ? 'Hoje' : fmtFull(selectedDate)}</div>
+                {dayDetail.tarefas.length === 0 && <div className={styles.emptyHint}>Nenhuma tarefa encontrada</div>}
+                {dayDetail.tarefas.map(t => {
+                  const checks = dayDetail.checksMap[t.id] || []
+                  const concluida = checks.some(c => c.tipo === 'total' || !c.tipo)
+                  return (
+                    <div key={t.id} className={styles.csCard} style={{flexDirection:'column',alignItems:'flex-start',gap:6}}>
+                      <div style={{display:'flex',alignItems:'center',gap:10,width:'100%'}}>
+                        <div style={{width:22,height:22,borderRadius:'50%',flexShrink:0,
+                          background: concluida?'#3B6D11':checks.length>0?'#D4A017':'#e5e5e5',
+                          display:'flex',alignItems:'center',justifyContent:'center'}}>
+                          {concluida && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>}
+                        </div>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:13,fontWeight:500,color:concluida?'#999':'#1a1a18',textDecoration:concluida?'line-through':'none'}}>{t.label}</div>
+                          <div style={{fontSize:11,color:'#999'}}>{t.blocos?.setores?.label} · {t.blocos?.label}</div>
+                        </div>
+                      </div>
+                      {checks.length > 0 ? (
+                        <div style={{display:'flex',gap:6,flexWrap:'wrap',paddingLeft:32}}>
+                          {checks.map((c,i) => {
+                            const p = paletteColor(c.colaboradores?.color_idx||0)
+                            return (
+                              <span key={i} style={{fontSize:11,fontWeight:500,padding:'2px 8px',borderRadius:8,
+                                background:c.tipo==='parcial'?'#FFF3CD':p.bg,
+                                color:c.tipo==='parcial'?'#856404':p.fg}}>
+                                {c.colaboradores?.nome?.split(' ')[0]} {c.tipo==='parcial'?'(parcial)':'✓'}
+                              </span>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <div style={{paddingLeft:32,fontSize:11,color:'#E24B4A'}}>Não realizado</div>
+                      )}
                     </div>
-                    <div className={styles.csSub}>{d.done}/{d.total} tarefas concluídas</div>
-                    <div className={styles.csBarWrap}>
-                      <div className={styles.csBarFill} style={{ width: `${d.pct}%`, background: bc }} />
-                    </div>
-                  </div>
-                  <div className={styles.csPct} style={{ color: bc }}>{d.pct}%</div>
-                </div>
-              )
-            })}
+                  )
+                })}
+              </>
+            )}
           </>
         )}
       </div>
