@@ -81,7 +81,8 @@ export default function ConfigScreen() {
       {screen === 'colabs' && (
         <ColabsScreen
           setores={setores}
-          filterSetor={isGerente ? user.setor_id : null}
+          filterSetor={null}
+          filterSetores={isGerente ? (user.setores?.map(s => s.id) || [user.setor_id]) : null}
           isGestor={isGestor}
           onBack={goBack}
           onAdd={() => setSheet({ type: 'add-colab' })}
@@ -341,17 +342,18 @@ function SetoresScreen({ setores, onBack, onAdd, onEdit, onDelete, onGoTarefas, 
   )
 }
 
-function ColabsScreen({ setores, filterSetor, isGestor, onBack, onAdd, onEdit, onDelete, onResetPin }) {
+function ColabsScreen({ setores, filterSetor, filterSetores, isGestor, onBack, onAdd, onEdit, onDelete, onResetPin }) {
   const [colabs, setColabs] = useState([])
 
   const loadColabs = useCallback(async () => {
     let q = supabase.from('colaboradores')
       .select('*, setores(label, color_idx)')
       .eq('ativo', true).order('nome')
-    if (filterSetor) q = q.eq('setor_id', filterSetor)
+    if (filterSetores?.length) q = q.in('setor_id', filterSetores)
+    else if (filterSetor) q = q.eq('setor_id', filterSetor)
     const { data } = await q
     setColabs(data || [])
-  }, [filterSetor])
+  }, [filterSetor, filterSetores])
 
   useEffect(() => { loadColabs() }, [loadColabs])
 
@@ -368,11 +370,12 @@ function ColabsScreen({ setores, filterSetor, isGestor, onBack, onAdd, onEdit, o
 
   return (
     <>
-      <TopBar title={filterSetor ? `${setores.find(s=>s.id===filterSetor)?.label} — Colaboradores` : 'Colaboradores'} onBack={onBack} />
+      <TopBar title={filterSetores ? `${setores.filter(s=>filterSetores.includes(s.id)).map(s=>s.label).join(' · ')} — Colaboradores` : filterSetor ? `${setores.find(s=>s.id===filterSetor)?.label} — Colaboradores` : 'Colaboradores'} onBack={onBack} />
       <div className={styles.body}>
         {colabs.map(c => {
           const p = paletteColor(c.color_idx)
           const r = rb(c)
+          
           return (
             <div key={c.id} className={styles.colabCard}>
               <div className={styles.colabAv} style={{ background: p.bg, color: p.fg }}>{c.initials}</div>
