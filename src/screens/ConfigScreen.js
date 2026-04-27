@@ -169,6 +169,7 @@ export default function ConfigScreen() {
               setores={setores}
               userRole={user.role}
               userSetorId={user.setor_id}
+              userSetorIds={user.setores?.map(s => s.id) || null}
               onSave={async (data) => {
                 const hash = await sha256(data.pin)
                 const setor_principal = data.role === 'gerente'
@@ -375,7 +376,6 @@ function ColabsScreen({ setores, filterSetor, filterSetores, isGestor, onBack, o
         {colabs.map(c => {
           const p = paletteColor(c.color_idx)
           const r = rb(c)
-          
           return (
             <div key={c.id} className={styles.colabCard}>
               <div className={styles.colabAv} style={{ background: p.bg, color: p.fg }}>{c.initials}</div>
@@ -798,7 +798,7 @@ function SetorSheet({ setor, onSave, onClose }) {
   )
 }
 
-function ColabSheet({ colab, setores, userRole, userSetorId, onSave, onClose }) {
+function ColabSheet({ colab, setores, userRole, userSetorId, userSetorIds, onSave, onClose }) {
   const [nome, setNome] = useState(colab?.nome || '')
   const [role, setRole] = useState(colab?.role || 'colaborador')
   const [setorId, setSetorId] = useState(colab?.setor_id || userSetorId || '')
@@ -807,7 +807,7 @@ function ColabSheet({ colab, setores, userRole, userSetorId, onSave, onClose }) 
   const [colorIdx] = useState(colab?.color_idx ?? Math.floor(Math.random() * PALETTE.length))
   const roles = userRole === 'gestor' ? ['gestor','gerente','colaborador'] : ['colaborador']
   const roleLabels = { gestor:'Gestor', gerente:'Gerente', colaborador:'Colaborador' }
-  const setoresList = userRole === 'gestor' ? setores : setores.filter(s => s.id === userSetorId)
+  const setoresList = userRole === 'gestor' ? setores : setores.filter(s => userSetorIds ? userSetorIds.includes(s.id) : s.id === userSetorId)
 
   // Carrega setores do gerente ao editar
   useEffect(() => {
