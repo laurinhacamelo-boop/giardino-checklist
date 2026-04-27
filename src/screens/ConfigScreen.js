@@ -98,7 +98,7 @@ export default function ConfigScreen() {
       )}
 
       {screen === 'alertas' && (
-        <AlertasScreen setores={setores} filterSetor={isGerente ? user.setor_id : null} onBack={goBack} log={log} />
+        <AlertasScreen setores={setores} filterSetores={isGerente ? (user.setores?.map(s => s.id) || [user.setor_id]) : null} onBack={goBack} log={log} />
       )}
 
       {screen === 'stats' && (
@@ -493,9 +493,9 @@ function TarefasScreen({ setorId, setores, onBack, log }) {
   )
 }
 
-function AlertasScreen({ setores, filterSetor, onBack, log }) {
+function AlertasScreen({ setores, filterSetor, filterSetores, onBack, log }) {
   const [blocos, setBlocos] = useState([])
-  const filtered = filterSetor ? setores.filter(s => s.id === filterSetor) : setores
+  const filtered = filterSetores ? setores.filter(s => filterSetores.includes(s.id)) : filterSetor ? setores.filter(s => s.id === filterSetor) : setores
 
   const loadBlocos = useCallback(async () => {
     const ids = filtered.map(s => s.id)
